@@ -1,0 +1,266 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  ADMIN
+  VENDOR
+  CUSTOMER
+}
+
+enum VendorStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PlacementStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PromotionType {
+  FIXED
+  PERCENTAGE
+}
+
+model User {
+  id                 String              @id @default(uuid())
+  email              String              @unique
+  password           String
+  name               String
+  type               UserType            @default(CUSTOMER)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  vendor             Vendor?
+  cart               Cart?
+  orders             Order[]
+  wishlist           Wishlist?
+  reviews            Review[]
+  readingPreferences ReadingPreference[]
+}
+
+model Vendor {
+  id                String       @id @default(uuid())
+  userId            String       @unique
+  user              User         @relation(fields: [userId], references: [id])
+  storeName         String
+  description       String?
+  status            VendorStatus @default(PENDING)
+  bankName          String?
+  accountNumber     String?
+  ifscCode          String?
+  accountHolderName String?
+  revenueShareRate  Float        @default(0.7) // 70% for vendor, 30% for platform
+  books             Book[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  books       Book[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Book {
+  id               String                     @id @default(uuid())
+  title            String
+  author           String
+  description      String
+  price            Float
+  discountPrice    Float?
+  fileUrl          String? // S3 URL to book file
+  coverImage       String? // S3 URL to cover
+  previewUrl       String? // S3 URL to preview content
+  format           String? // PDF, EPUB, etc.
+  pageCount        Int?
+  language         String                     @default("English")
+  isbn             String?                    @unique
+  publishedDate    DateTime?
+  vendorId         String
+  vendor           Vendor                     @relation(fields: [vendorId], references: [id])
+  categories       Category[]
+  cartItems        CartItem[]
+  orderItems       OrderItem[]
+  wishlistItems    WishlistItem[]
+  reviews          Review[]
+  featuredRequests FeaturedPlacementRequest[]
+  sections         HomepageSectionBook[]
+  salesCount       Int                        @default(0)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+}
+
+model Cart {
+  id        String     @id @default(uuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id])
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, bookId]) // Prevent duplicate books in cart
+}
+
+model Wishlist {
+  id        String         @id @default(uuid())
+  userId    String         @unique
+  user      User           @relation(fields: [userId], references: [id])
+  items     WishlistItem[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+model WishlistItem {
+  id         String   @id @default(uuid())
+  wishlistId String
+  wishlist   Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  bookId     String
+  book       Book     @relation(fields: [bookId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([wishlistId, bookId]) // Prevent duplicate books in wishlist
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  items           OrderItem[]
+  total           Float
+  status          OrderStatus @default(PENDING)
+  razorpayOrderId String?     @unique
+  paymentId       String?
+  couponId        String?
+  coupon          Coupon?     @relation(fields: [couponId], references: [id])
+  discountAmount  Float       @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id])
+  price     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id])
+  rating    Int
+  review    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, bookId]) // User can only review a book once
+}
+
+model ReadingPreference {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  preferredGenre String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, preferredGenre]) // No duplicate preferences
+}
+
+model FeaturedPlacementRequest {
+  id                String          @id @default(uuid())
+  bookId            String
+  book              Book            @relation(fields: [bookId], references: [id])
+  requestedPosition String
+  paymentStatus     Boolean         @default(false)
+  status            PlacementStatus @default(PENDING)
+  startDate         DateTime?
+  endDate           DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model Coupon {
+  id                 String        @id @default(uuid())
+  code               String        @unique
+  description        String?
+  discountAmount     Float?
+  discountPercentage Float?
+  type               PromotionType
+  minPurchase        Float?
+  maxDiscount        Float?
+  startDate          DateTime
+  endDate            DateTime
+  isActive           Boolean       @default(true)
+  usageLimit         Int?
+  usageCount         Int           @default(0)
+  orders             Order[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+}
+
+model HomepageSection {
+  id        String                @id @default(uuid())
+  title     String
+  type      String // "new_releases", "bestsellers", etc.
+  position  Int
+  isActive  Boolean               @default(true)
+  books     HomepageSectionBook[]
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+}
+
+model HomepageSectionBook {
+  id        String          @id @default(uuid())
+  sectionId String
+  section   HomepageSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book            @relation(fields: [bookId], references: [id])
+  position  Int
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([sectionId, bookId]) // Book appears only once per section
+}
